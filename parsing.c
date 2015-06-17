@@ -466,7 +466,7 @@ int main (int argc, char** argv){
 
   while(1){
     /*Show the prompt and get input from the user*/
-    char* input = readline("lipsy> ");
+    char* input = readline("lispter> ");
     /*Add the input to istory*/
     add_history(input);
 
