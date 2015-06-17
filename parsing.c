@@ -567,13 +567,13 @@ lval* eval_sexpr(lenv* env, lval* v){
 
 
 int main (int argc, char** argv){
-  //Create some parsers
+  //Create parsers
   mpc_parser_t* Number = mpc_new("number");
   mpc_parser_t* Symbol = mpc_new("symbol");
   mpc_parser_t* Sexpr = mpc_new("sexpr");
   mpc_parser_t* Qexpr = mpc_new("qexpr");
   mpc_parser_t* Expr = mpc_new("expr");
-  mpc_parser_t* Lispy = mpc_new ("lispy");
+  mpc_parser_t* Lispy = mpc_new("lispy");
   //Define the above parsers
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                           \
@@ -586,7 +586,7 @@ int main (int argc, char** argv){
     ",
       Number, Symbol, Sexpr, Expr, Qexpr, Lispy);
   
-  puts("Welcome to Lipsy. Enter something and press enter");
+  puts("Welcome to Lispter. Enter a Lisp command and press enter");
   puts("Type 'exit' to quit");
 
   while(1){
@@ -596,7 +596,7 @@ int main (int argc, char** argv){
     add_history(input);
 
     
-    //When exit is typed we stop the loop.
+    //When exit is typed we stop the loop/exit the program.
     if(strcmp(input,"exit")==0){
       break;
     }
