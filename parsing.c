@@ -24,16 +24,91 @@
 
 
 //Enumeration of possible lval types
-enum{LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR};
+enum{LVAL_NUM, LVAL_ERR, LVAL_SYM, LVAL_SEXPR, LVAL_QEXPR, LVAL_FUN};
 //Enumeration of possible error types
 enum{LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM};
+
+//Forward declarations
+void lval_print(lval* v);
+lval* eval_sexpr(lval* v);
+struct lval;
+struct lenv;
+typedef struct lval lval;
+typedef struct lenv lenv;
+
+typedef lval*(*lbuiltin)(lenv*, lval*);
+
+//List of relationships between names and values for our env
+struct lenv{
+  int count;
+  char** syms;
+  lval** vals;
+};
+
+//Create a new lenv (environment)
+lenv* lenv_new(void){
+  lenv* env = malloc(sizeof(lenv));
+  env->count = 0;
+  env->syms = NULL;
+  env->vals = NULL;
+  return env;
+}
+
+//delete an environment
+void lenv_del(lenv* env){
+  for(int i = 0; i < env->count; i++){
+    free(env->syms[i]);
+    free(env->vals[i]);
+  }
+  free(env->syms);
+  free(env->vals);
+  free(env);
+}
+
+lval* lenv_get(lenv* env,lval* k){
+  //Iterate over all the items in the env
+  for(int i = 0; i < env->count; i++){
+    //Check if the stored string matches the symbol string
+    //If it does return a copy of the value
+    if(strcmp(e->syms[i],k->sym) == 0){
+      return lval_copy(env->vals[i]);
+    }
+  }
+  //If no symbol was found return error
+  return lval_err("unbound symbol");
+}
+
+void lenv_put(lenv* env, lval* k, lval* var){
+  //Iterate over all the items in the env to see
+  // it the variable already exists
+  for(int i = 0; i < env->count; i++){
+    //if it exists delete the old value and replace it
+    //with the value provided by the user
+    if(strcmp(env->syms[i], k->sym)== 0){
+      lval_del(env->vals[i]);
+      env->vals[i] = lval_copy(var);
+      return;
+    }
+  }
+  //If no existing entry was found, allocate space for new entry
+  env->count++;
+  env->vals = realloc(env->vals, sizeof(lval*) * env->count);
+  env->syms = realloc(env->syms, sizeof(char*) * env->count);
+
+  //Copy the content of lval and symbol strings into new location
+  env->vals[env->count-1] = lval_copy(var);
+  env->syms[env->count-1] = malloc(strlen(k->sym)+1);
+  strcpy(env->syms[env->count-1], k->sym);
+}
 
 typedef struct lval{
   int type;
   long num;
-  /*We stire error and symbol type as string data*/
+  /*We store error and symbol type as string data*/
   char* sym;
   char* err;
+  
+  lbuiltin fun;
 
   /*Count and pointers to "lval*" */
   int count;
@@ -41,9 +116,15 @@ typedef struct lval{
 
 }lval;
 
-//Forward declarations
-void lval_print(lval* v);
-lval* eval_sexpr(lval* v);
+
+
+
+lval* lval_fun(lbuiltin func){
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_FUN;
+  v->fun = func;
+  return v;
+}
 
 lval* lval_num(long x){
   lval* v = malloc(sizeof(lval));
@@ -90,6 +171,8 @@ lval* lval_qexpr(void){
 void lval_del(lval* lv){
 
   switch(lv->type){
+    case LVAL_FUN:
+      break;
     case LVAL_NUM:
       break;
     case LVAL_ERR: 
@@ -176,6 +259,9 @@ void lval_expr_print(lval* v, char open, char close){
 //Print an lval
 void lval_print(lval* v){
   switch(v->type){
+    case LVAL_FUN:
+      printf("<function>");
+      break;
     case LVAL_NUM:
       printf("%li",v->num);
       break;
@@ -200,10 +286,51 @@ void lval_println(lval* v){
   printf("\n");
 }
 
-lval* eval(lval* v){
+//Copy an lval
+lval* lval_copy(lval* v){
+  lval* x = malloc(sizeof(lval));
+  x->type = v->type;
+
+  switch(v->type){
+    //Copy functions and numbers directly
+    case LVAL_FUN:
+      x->fun = v->fun;
+      break;
+    case LVAL_NUM:
+      x->num = v->num;
+      break;
+    //Copy strings and symbols with malloc and strcpy
+    case LVAL_SYM:
+      x->sym = malloc(strlen(v->sym) + 1);
+      strcpy(x->sym, v->sym);
+      break;
+
+    case LVAL_ERR:
+      x->err = malloc(strlen(v->err) + 1 );
+      strcpy(x->err, v->err);
+      break;
+    //Copy expressions one element at a time
+    case LVAL_QEXPR:
+    case LVAL_SEXPR:
+      x->count = v->count;
+      x->cell = malloc(sizeof(lval*) * x->count);
+      for(int i = 0; i < x->count; i++){
+        x->cell[i] = lval_copy(v->cell[i]);
+      }
+      break;
+  }
+
+  return x;
+}
+
+lval* eval(lenv* env, lval* v){
+  if (v->type == LVAL_SYM){
+    lval* x = lenv_get(env, v);
+    lval_del(v);
+  }
   //Evaluate S-Expression
   if(v->type == LVAL_SEXPR){
-    return eval_sexpr(v);
+    return eval_sexpr(env,v);
   }
   //All other types of lval remain the same
   return v;
@@ -375,24 +502,24 @@ lval* builtin_join(lval* a){
   return x;
 }
 
-lval* builtin(lval* a, char* func){
+lval* builtin(lenv* env, lval* a, char* func){
   if (strcmp("list", func) == 0) {
-    return builtin_list(a);
+    return builtin_list(env,a);
   }
   if (strcmp("head", func) == 0) {
-    return builtin_head(a);
+    return builtin_head(env,a);
   }
   if (strcmp("tail", func) == 0) {
-    return builtin_tail(a);
+    return builtin_tail(env,a);
   }
   if (strcmp("join", func) == 0) {
-    return builtin_join(a);
+    return builtin_join(env,a);
   }
   if (strcmp("eval", func) == 0) {
-    return builtin_eval(a);
+    return builtin_eval(env,a);
   }
   if(strstr("+-/*", func)){ 
-    return builtin_op(a, func);
+    return builtin_op(env, a, func);
   }
 
   lval_del(a);
@@ -401,10 +528,10 @@ lval* builtin(lval* a, char* func){
 }
 
 //Evaluate a symbolic or quoted expression
-lval* eval_sexpr(lval* v){
+lval* eval_sexpr(lenv* env, lval* v){
   //Evaluate the children
   for(int i=0; i < v->count; i++){
-    v->cell[i] = eval(v->cell[i]);
+    v->cell[i] = eval(env, v->cell[i]);
   }
 
   //Check for errors
@@ -424,15 +551,15 @@ lval* eval_sexpr(lval* v){
     return take(v, 0);
   }
 
-  //Check first element is symbol
+  //Check first element is function after evaluation
   lval* f = pop(v, 0);
-  if(f->type != LVAL_SYM){
-    lval_del(f); lval_del(v);
-    return lval_err("S-expression does not start with a symbo");
+  if(f->type != LVAL_FUN){
+    lval_del(v); lval_del(f);
+    return lval_err("first element is not a function");
   }
 
-  //Call builtin with operator
-  lval* result = builtin(v, f->sym);
+  //If it is call function to get result
+  lval* result = f->fun(env,v);
   lval_del(f);
   return result;
 }
@@ -451,9 +578,7 @@ int main (int argc, char** argv){
   mpca_lang(MPCA_LANG_DEFAULT,
     "                                           \
     number: /-?[0-9]+/;                          \
-    symbol: \"list\" | \"head\" | \"tail\" |     \
-            \"join\" | \"eval\" |                \
-            '+' |'-' | '*'| '/' | '%';            \
+    symbol: /[a-zA-Z0-9_+*\\-\\/\\\\=<>!&]+/;     \
     sexpr: '(' <expr>* ')';                         \
     qexpr: '{' <expr>* '}';                          \
     expr: <number> | <symbol> | <sexpr> | <qexpr>;   \
